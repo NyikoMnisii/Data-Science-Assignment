@@ -11,6 +11,9 @@ df = pd.read_csv('Question 1 datasets .csv')
 X = df.drop('Days to Failure', axis=1)
 y = df['Days to Failure']
 
+# added feature scaling
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
 
 # 3. Split (80/20)
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)

@@ -1,69 +1,153 @@
-# Data-Science-Assignment
+#  Predictive Maintenance in Manufacturing
 
-# Problem 1 - Predictive Maintenance in Manufacturing (Regression with Overfitting Resolution) 
 
-## Objective
-To build a regression model that predicts **Days Until Failure** for heavy machinery using industrial sensor data. The dataset includes:
+##  Objective
 
-- Temperature (°C)
-- Vibration (mm/s)
-- Pressure (psi)
-- Runtime (hours)
+Build a predictive model to estimate the number of **days until machine failure** using industrial sensor data, including:
 
-Target: **Days to Failure** (continuous)
+- **Temperature (°C)**
+- **Vibration (mm/s)**
+- **Pressure (psi)**
+- **Runtime (hours)**
+
+The target is a continuous value: **Days to Failure**.
 
 ---
 
 ##  Problem Statement
-Initial linear regression models **overfit** the training data and performed poorly on unseen samples. The goal is to apply **ensemble learning** to improve generalization and reduce overfitting.
+
+Initial attempts with linear regression overfitted the training data, performing poorly on unseen sensor readings. This project applies an **ensemble learning approach (Random Forest)** and integrates **clustering, feature scaling, and data augmentation** to improve generalization.
 
 ---
 
-##  Approach
+##  Steps Taken
 
-###  1. Data Preprocessing
-- Dropped irrelevant columns (`Index`)
-- Checked for missing values (none found)
-- Explored data distributions
+### 1.  Data Exploration
+- Loaded the dataset from `Question 1 datasets .csv`.
+- Explored feature types and checked for missing values.
 
-### 2. Feature Engineering
-- Created interaction feature: `vibration_runtime = Vibration × Runtime`
-- Applied log transform: `log_pressure = log(Pressure + 1)`
-- Scaled features using `StandardScaler`
+### 2.  Outlier Removal
+- Removed outliers using the **IQR method** for columns:
+  - `Temperature`, `Vibration`, `Pressure`, `Runtime`, `Days to Failure`
+- No outliers were found, but method remains for robustness.
 
-###  3. Models Used
-- **Linear Regression** (baseline)
-- **Random Forest Regressor**
-- **Gradient Boosting Regressor**
+### 3.  Feature Engineering
+- **Features selected**:
+  - `Temperature`, `Vibration`, `Pressure`, `Runtime`
+- **Target**: `Days to Failure`
 
-###  4. Evaluation Metrics
-- **RMSE** (Root Mean Squared Error)
-- **R² Score**
-- **5-Fold Cross-Validation** for generalization
+### 4.  Feature Scaling
+- Standardized features using **StandardScaler** for consistent scale, especially useful for clustering.
+
+### 5.  Data Augmentation
+- Created synthetic data using **Gaussian noise** on sensor values.
+- Increased dataset size from **200 → 800 samples**.
+- Preserved original target values to retain true failure patterns.
+
+### 6.  Unsupervised Learning (Clustering)
+- Applied **K-Means (k=5)** to identify hidden patterns in the data.
+- Added **cluster labels** as an extra feature to assist the regression model.
+
+### 7.  Model Training – Random Forest
+- Trained **RandomForestRegressor** with:
+  - `n_estimators=100`
+  - `random_state=42`
+- Used an **80/20 train-test split**.
+
+### 8.  Evaluation
+- Metrics used:
+  - **RMSE (Root Mean Squared Error)**
+  - **R² (Coefficient of Determination)**
+- Also performed **5-fold cross-validation** to evaluate model generalization.
 
 ---
 
 ##  Results
 
-| Model                  | RMSE    | R² Score | CV RMSE | CV R² |
-|------------------------|---------|----------|---------|-------|
-| Linear Regression      | High    | Negative | High    | Negative |
-| Random Forest Regressor| 159.22  | -0.20    | 141.67  | -0.16 |
-| Gradient Boosting      | 173.08  | -0.42    | 154.56  | -0.39 |
+| Metric                  | Value      |
+|--------------------------|------------|
+| Test RMSE               | **47.69**   |
+| Test R²                 | **0.87**    |
+| Cross-Validated RMSE    | **47.52**   |
+| Cross-Validated R²      | **0.87**    |
 
-> **Note**: Despite ensemble methods, performance remained poor due to potential low signal or noise in the dataset (possibly intentional for academic purposes).
-
----
-
-## conclusion
-
-- **Ensemble models reduce overfitting**, but cannot fix weak data.
-- **Feature engineering** helped marginally, but more informative features are needed.
-- Dataset likely requires **domain-specific attributes** (e.g., machine ID, timestamps, failure type).
+ RMSE < 50 indicates good accuracy  
+ R² ≈ 0.87 means strong generalization and fit  
 
 ---
 
-##  Problem 2
+##  Why Random Forest?
 
-Due to extreme class imbalance (only 5 labeled fraud cases), classification performance is low. F1 = 0.16. To improve performance, more labeled fraud examples are needed or an anomaly detection approach should be considered."
+- **Reduces overfitting** by averaging results from multiple trees (bagging)
+- Handles non-linear relationships well
+- Naturally robust to noise and feature scaling
+
+---
+
+# Fraud Detection in Banking  
+
+##  Objective
+
+This project focuses on detecting fraudulent banking transactions using both **unsupervised (clustering)** and **supervised (classification)** learning techniques. The dataset includes both labeled and unlabeled transactions, and the goal is to identify patterns of fraud through clustering and classify future transactions using a robust classification pipeline.
+
+---
+
+## Dataset Overview
+
+The dataset includes the following features:
+
+- `Amount`: Transaction amount (USD)
+- `Time_Hour`: Hour of the day (0–23)
+- `Location`: Transaction location category (e.g., ATM, Online)
+- `Merchant`: Type of merchant
+- `Is_Fraud`: Label (`0` = Not fraud, `1` = Fraud, `-1` = Unlabeled)
+
+---
+
+##  Problem Breakdown
+
+###  A. Clustering Unlabeled Data
+
+- **Algorithm:** K-Means (unsupervised)
+- **Justification:** Allows grouping of transactions to find potential anomaly clusters (e.g., high-amount, late-night transactions).
+- **Feature Engineering:**
+  - One-Hot Encoding for categorical features (`Location`, `Merchant`, `Time_Period`)
+  - StandardScaler for numeric features (`Amount`, `Time_Hour`)
+  - `Time_Period` feature engineered by binning `Time_Hour` into: Morning, Afternoon, Evening, Night
+- **Elbow Method:** Used to choose optimal number of clusters (`k=3`)
+- **Result:** Labeled clusters for further inspection and analysis
+
+```text
+
+Clusters assigned to unlabeled data:
+Cluster 1: 40 samples
+Cluster 2: 33 samples
+Cluster 0: 27 samples
+```
+### Feature Engineering & Class Balancing:
+
+- Binned `Time_Hour` into time periods for better feature representation.
+- Applied One-Hot Encoding to categorical features.
+- Scaled numerical features.
+- Augmented minority class (fraud cases) using Gaussian noise-based synthetic samples to reduce class imbalance.
+- Further applied SMOTE during training to balance classes dynamically in cross-validation folds.
+
+---
+
+### Model:
+
+- Gaussian Naive Bayes was chosen for handling categorical data efficiently with low variance.
+- Evaluated using 10-fold Stratified Cross-Validation.
+
+---
+
+### Performance:
+
+- Average F1 Score (10-fold CV): 0.822
+
+
+
+
+
+
 

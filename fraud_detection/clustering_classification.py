@@ -1,24 +1,26 @@
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
-from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.naive_bayes import GaussianNB
-from sklearn.metrics import f1_score, confusion_matrix, ConfusionMatrixDisplay
 from sklearn.cluster import KMeans
+from sklearn.model_selection import StratifiedKFold
+from sklearn.naive_bayes import GaussianNB
+from sklearn.metrics import f1_score, ConfusionMatrixDisplay
 from imblearn.over_sampling import SMOTE
 
-# Load CSV
+
 df = pd.read_csv("Question 2 Datasets .csv")
-df.columns = df.columns.str.strip()  # Strip whitespace from headers
+df.columns = df.columns.str.strip()
+
+# Ensure Is_Fraud is integer and consistent
 df['Is_Fraud'] = df['Is_Fraud'].astype(int)
 
-# Split labeled/unlabeled
+
 df_labeled = df[df['Is_Fraud'] != -1].copy()
 df_unlabeled = df[df['Is_Fraud'] == -1].copy()
 
-# --- Feature Engineering ---
+
 def time_bin(hour):
     if 0 <= hour < 6:
         return 'Night'
@@ -32,9 +34,54 @@ def time_bin(hour):
 df_labeled['Time_Period'] = df_labeled['Time_Hour'].apply(time_bin)
 df_unlabeled['Time_Period'] = df_unlabeled['Time_Hour'].apply(time_bin)
 
-# --- Clustering (Unsupervised) ---
+# Augmentation of minority labeled data with noise
+numeric_cols = ['Amount', 'Time_Hour']
+cat_cols = ['Location', 'Merchant', 'Time_Period']
+
+
+def augment_minority_only(df, numeric_columns, label_column, minority_class=1, noise_level=0.05, num_augments=9):
+    df_minority = df[df[label_column] == minority_class]
+    df_majority = df[df[label_column] != minority_class]
+
+    X_num = df_minority[numeric_columns].values
+    y = df_minority[label_column].values
+
+    X_aug = [X_num]
+    y_aug = [y]
+
+    for _ in range(num_augments):
+        noise = np.random.normal(0, noise_level * np.std(X_num, axis=0), X_num.shape)
+        X_noisy = X_num + noise
+        X_aug.append(X_noisy)
+        y_aug.append(y)
+
+    X_augmented = np.vstack(X_aug)
+    y_augmented = np.hstack(y_aug)
+
+    df_cat_repeated = pd.concat([df_minority[cat_cols]] * (num_augments + 1), ignore_index=True)
+
+    df_minority_aug = pd.DataFrame(X_augmented, columns=numeric_columns)
+    df_minority_aug[label_column] = y_augmented
+    df_minority_aug = pd.concat([df_minority_aug, df_cat_repeated], axis=1)
+
+
+    df_combined = pd.concat([df_majority, df_minority_aug], ignore_index=True)
+
+    return df_combined
+
+
+df_augmented = augment_minority_only(df_labeled, numeric_cols, 'Is_Fraud', noise_level=0.1, num_augments=14)
+
+print(f"Original labeled data shape: {df_labeled.shape}")
+print(f"Augmented labeled data shape: {df_augmented.shape}")
+print("Class distribution after augmentation:")
+print(df_augmented['Is_Fraud'].value_counts())
+
+
+
 cluster_features = ['Amount', 'Time_Hour', 'Location', 'Merchant', 'Time_Period']
 X_cluster = df_unlabeled[cluster_features]
+
 
 cluster_preprocessor = ColumnTransformer([
     ("onehot", OneHotEncoder(drop='first'), ['Location', 'Merchant', 'Time_Period']),
@@ -43,81 +90,92 @@ cluster_preprocessor = ColumnTransformer([
 
 X_cluster_preprocessed = cluster_preprocessor.fit_transform(X_cluster)
 
-# Elbow Method
+
+if hasattr(X_cluster_preprocessed, "toarray"):
+    X_cluster_preprocessed = X_cluster_preprocessed.toarray()
+
+# Elbow method to select number of clusters k
 sse = []
 for k in range(1, 10):
     kmeans = KMeans(n_clusters=k, n_init=10, random_state=42)
     kmeans.fit(X_cluster_preprocessed)
     sse.append(kmeans.inertia_)
 
+plt.figure(figsize=(8, 5))
 plt.plot(range(1, 10), sse, marker='o')
 plt.title("Elbow Method for Optimal k")
 plt.xlabel("Number of clusters")
 plt.ylabel("SSE")
-plt.grid()
+plt.grid(True)
 plt.show()
 
-# Final Clustering with k=3
+
 kmeans = KMeans(n_clusters=3, n_init=10, random_state=42)
 df_unlabeled['Cluster'] = kmeans.fit_predict(X_cluster_preprocessed)
 
-# --- Classification (Supervised) ---
+print("Clusters assigned to unlabeled data:")
+print(df_unlabeled['Cluster'].value_counts())
 
-# Features and label
+
+
 features = ['Amount', 'Time_Hour', 'Location', 'Merchant', 'Time_Period']
-X = df_labeled[features]
-y = df_labeled['Is_Fraud'].astype(int)
+X = df_augmented[features]
+y = df_augmented['Is_Fraud']
 
-# Preprocessing pipeline (same as clustering)
+#
 preprocessor = ColumnTransformer([
     ("onehot", OneHotEncoder(drop='first'), ['Location', 'Merchant', 'Time_Period']),
     ("scale", StandardScaler(), ['Amount', 'Time_Hour'])
 ])
 
-# Train-test split BEFORE SMOTE
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42, stratify=y
-)
+smote = SMOTE(random_state=42)
 
 
-# Apply preprocessing
-X_train_processed = preprocessor.fit_transform(X_train)
-X_test_processed = preprocessor.transform(X_test)
+skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=42)
 
-# Only apply SMOTE if safe
-if df_labeled['Is_Fraud'].value_counts()[1] >= 6:
-    smote = SMOTE(random_state=42)
-    X_resampled, y_resampled = smote.fit_resample(X_train_processed, y)
+f1_scores = []
 
-# Apply SMOTE to training data
-smote = SMOTE(random_state=42, k_neighbors=3)
-X_resampled, y_resampled = smote.fit_resample(X_train_processed, y_train)
+for train_idx, test_idx in skf.split(X, y):
+    X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+    y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
 
-# Train classifier
-model = GaussianNB()
-model.fit(X_resampled, y_resampled)
 
-# Predict
-y_pred = model.predict(X_test_processed)
+    X_train_proc = preprocessor.fit_transform(X_train)
+    if hasattr(X_train_proc, "toarray"):
+        X_train_proc = X_train_proc.toarray()
 
-# Evaluation
-f1 = f1_score(y_test, y_pred)
-cm = confusion_matrix(y_test, y_pred)
+    X_test_proc = preprocessor.transform(X_test)
+    if hasattr(X_test_proc, "toarray"):
+        X_test_proc = X_test_proc.toarray()
 
-print("F1 Score:", round(f1, 3))
-print("Confusion Matrix:\n", cm)
+    # Apply SMOTE only on training data
+    X_train_res, y_train_res = smote.fit_resample(X_train_proc, y_train)
 
-# Display confusion matrix
+
+    clf = GaussianNB()
+    clf.fit(X_train_res, y_train_res)
+
+
+    y_pred = clf.predict(X_test_proc)
+
+
+    f1 = f1_score(y_test, y_pred)
+    f1_scores.append(f1)
+
+print(f"Average F1 Score (10-fold CV): {np.mean(f1_scores):.3f}")
+
+
+
+X_full_proc = preprocessor.fit_transform(X)
+if hasattr(X_full_proc, "toarray"):
+    X_full_proc = X_full_proc.toarray()
+
+X_resampled, y_resampled = smote.fit_resample(X_full_proc, y)
+
+final_model = GaussianNB()
+final_model.fit(X_resampled, y_resampled)
+
+
 ConfusionMatrixDisplay.from_predictions(y_test, y_pred)
+plt.title("Confusion Matrix (Last Fold)")
 plt.show()
-
-# Cross-validation with preprocessing in pipeline
-full_pipeline = Pipeline(steps=[
-    ('preprocessor', preprocessor),
-    ('classifier', GaussianNB())
-])
-
-cv_scores = cross_val_score(full_pipeline, X, y, scoring='f1', cv=10)
-print("Average F1 Score (10-fold):", round(cv_scores.mean(), 3))
-print(df['Is_Fraud'].value_counts())
-

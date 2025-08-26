@@ -1,4 +1,4 @@
-Index,Amount,Time_Hour,Location,Merchant,Is_Fraud (Labeled Subset)
+Index,Amount,Time_Hour,Location,Merchant,Is_Fraud
 0,816.44,7,ATM,Retail,0.0
 1,999.96,1,ATM,Grocery,0.0
 2,1443.2,7,Online,Food,0.0

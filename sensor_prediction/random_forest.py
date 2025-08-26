@@ -1,38 +1,44 @@
-# 1. Import libraries
 import pandas as pd
-from sklearn.model_selection import train_test_split, cross_val_score, KFold
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_squared_error, r2_score
-from sklearn.preprocessing import StandardScaler
 import numpy as np
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.model_selection import train_test_split, cross_val_score, KFold
+from sklearn.metrics import mean_squared_error, r2_score
 
-# 2. Loading  and preparing  data
-df = pd.read_csv('Question 1 datasets .csv')
-X = df.drop('Days to Failure', axis=1)
+# Assuming you have a DataFrame called df with the following columns
+# Features: temperature, vibration, pressure, runtime
+# Target: days_until_failure
+
+df = pd.read_csv("Question 1 datasets .csv")
+df['vibration_runtime'] = df['Vibration'] * df['Runtime']
+df['log_pressure'] = np.log1p(df['Pressure'])
+X = df[['Temperature', 'Vibration', 'Pressure', 'Runtime', 'vibration_runtime', 'log_pressure']]
 y = df['Days to Failure']
 
-# added feature scaling
+# Train-test split (80/20)
+
+from sklearn.preprocessing import StandardScaler
+
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
 
-# 3. Split (80/20)
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# 4. Fit Random Forest
-model = RandomForestRegressor(n_estimators=100, random_state=42)
-model.fit(X_train, y_train)
 
-# 5. Predict
-y_pred = model.predict(X_test)
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
 
-# 6. Evaluate
+gbr = GradientBoostingRegressor(n_estimators=200, learning_rate=0.1, max_depth=3, random_state=42)
+gbr.fit(X_train, y_train)
+
+y_pred = gbr.predict(X_test)
+
 rmse = np.sqrt(mean_squared_error(y_test, y_pred))
 r2 = r2_score(y_test, y_pred)
 
-print(f'RMSE: {rmse:.2f}')
-print(f'R² Score: {r2:.2f}')
+print(f"RMSE: {rmse:.2f}")
+print(f"R² Score: {r2:.2f}")
+cv = KFold(n_splits=5, shuffle=True, random_state=42)
 
-# 7. Cross-validation
-kf = KFold(n_splits=5, shuffle=True, random_state=42)
-cv_scores = cross_val_score(model, X, y, cv=kf, scoring='r2')
-print(f'Average R² CV Score: {cv_scores.mean():.2f}')
+cv_rmse = -cross_val_score(gbr, X_scaled, y, scoring='neg_root_mean_squared_error', cv=cv)
+cv_r2 = cross_val_score(gbr, X_scaled, y, scoring='r2', cv=cv)
+
+print(f"Average RMSE (5-fold): {cv_rmse.mean():.2f}")
+print(f"Average R² (5-fold): {cv_r2.mean():.2f}")
